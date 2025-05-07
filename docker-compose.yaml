@@ -1,0 +1,162 @@
+services:
+  getaway:
+    build:
+      context: ./getaway
+      dockerfile: Dockerfile
+    container_name: video-analytics-gateway
+    environment:
+      ORCHESTRATOR_URL: http://orchestrator:8080
+    ports:
+      - "8001:8000"
+    depends_on:
+      - orchestrator
+    networks:
+      - video-analytics-network
+    restart: unless-stopped
+
+  orchestrator:
+    build:
+      context: ./orchestrator
+      dockerfile: Dockerfile
+    container_name: video-analytics-orchestrator
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: vidanalytics
+      DB_PASSWORD: secret
+      DB_NAME: vidanalytics
+      API_PORT: 8080
+      KAFKA_BROKER: kafka:9092  # Добавляем Kafka брокер
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - video-analytics-network
+    restart: unless-stopped
+
+  runner:
+    build:
+      context: ./runner
+      dockerfile: Dockerfile
+    container_name: video-analytics-runner
+    environment:
+      ORCHESTRATOR_URL: http://orchestrator:8080
+      INFERENCE_URL: http://inference:8000
+      HEARTBEAT_INTERVAL: 10
+    volumes:
+      - video_data:/app/videos
+    depends_on:
+      - detection
+    networks:
+      - video-analytics-network
+    restart: unless-stopped
+
+  detection:
+    build:
+      context: ./detection
+      dockerfile: Dockerfile
+    container_name: video-analytics-detection
+    volumes:
+      - model_data:/app/models
+    ports:
+      - "8000:8000"
+    networks:
+      - video-analytics-network
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: video-analytics-postgres
+    environment:
+      POSTGRES_USER: vidanalytics
+      POSTGRES_PASSWORD: secret
+      POSTGRES_DB: vidanalytics
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U vidanalytics" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - video-analytics-network
+
+  zookeeper:
+    container_name: zookeeper
+    image: confluentinc/cp-zookeeper:latest
+    restart: on-failure
+    ports:
+      - '2181:2181'
+    environment:
+      zk_id: "1"
+      ZOOKEEPER_CLIENT_PORT: 32181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_SYNC_LIMIT: 2
+    networks:
+      - video-analytics-network
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    ports:
+      - "8084:8080"
+    restart: on-failure
+    environment:
+      - KAFKA_CLUSTERS_0_NAME=dev-local
+      - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:9191
+      - KAFKA_CLUSTERS_0_ZOOKEEPER=zookeeper:32181
+    depends_on:
+      - zookeeper
+      - kafka
+    networks:
+      - video-analytics-network
+
+  kafka:
+    container_name: kafka
+    image: confluentinc/cp-kafka:latest
+    restart: on-failure
+    ports:
+      - '9091:9091'
+    environment:
+      KAFKA_ZOOKEEPER_CONNECT: "zookeeper:32181"
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:9191,OUTSIDE://0.0.0.0:9091
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9191,OUTSIDE://localhost:9091
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,OUTSIDE:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    command: sh -c "((sleep 15 && kafka-topics --create --zookeeper zookeeper:32181 --replication-factor 1 --partitions 1 --topic templates)&) && /etc/confluent/docker/run"
+    depends_on:
+      - zookeeper
+    networks:
+      - video-analytics-network
+
+  minio:
+    image: bitnami/minio:latest
+    container_name: video-analytics-minio
+    environment:
+      MINIO_ROOT_USER: minio-access-key
+      MINIO_ROOT_PASSWORD: minio-secret-key
+      MINIO_DEFAULT_BUCKETS: videos  # Создаём бакет при запуске
+    ports:
+      - "9000:9000"  # доступ для API
+      - "9001:9001"  # доступ для Web UI
+    volumes:
+      - minio_data:/data
+    networks:
+      - video-analytics-network
+    restart: unless-stopped
+
+networks:
+  video-analytics-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  video_data:
+  model_data:
+  minio_data:
