@@ -11,6 +11,7 @@ app = FastAPI()
 
 @app.post("/predict")
 async def infer_image(file: UploadFile = File(...)):
+    print("got file", file.filename)
     if not file.content_type.startswith('image/'):
         raise HTTPException(status_code=400, detail="File must be an image")
     try:
@@ -25,6 +26,11 @@ async def infer_image(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=f"Inference error: {e}")
 
     return JSONResponse(content={"detections": detections})
+
+
+@app.get("/health")
+async def health_check():
+    return {"status": "ok"}
 
 
 if __name__ == "__main__":
