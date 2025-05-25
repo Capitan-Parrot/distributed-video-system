@@ -1,42 +1,62 @@
-from fastapi import APIRouter
-from uuid import UUID, uuid4
-from typing import Dict
+import os
+
+from fastapi import APIRouter, HTTPException
+from uuid import UUID
+import httpx
 
 router = APIRouter()
 
-# In-memory store for scenarios (for stub purposes)
-fake_db: Dict[UUID, str] = {}
+ORCHESTRATOR_URL = os.getenv("ORCHESTRATOR_URL", "http://localhost:8080")
+client = httpx.AsyncClient(timeout=10.0)
 
 
 @router.post("/scenario/")
-def initialize_scenario():
-    scenario_id = uuid4()
-    fake_db[scenario_id] = "initialized"
-    return {"scenario_id": scenario_id, "status": "initialized"}
+async def initialize_scenario():
+    try:
+        resp = await client.post(f"{ORCHESTRATOR_URL}/scenario")
+        resp.raise_for_status()
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=500, detail=f"Orchestrator error: {e}")
+    return resp.json()
 
 
 @router.post("/scenario/{scenario_id}/")
-def change_scenario_status(scenario_id: UUID):
-    if scenario_id not in fake_db:
-        return {"error": "Scenario not found"}
-    fake_db[scenario_id] = "updated"
-    return {"scenario_id": scenario_id, "status": "updated"}
+async def change_scenario_status(scenario_id: UUID):
+    try:
+        resp = await client.post(f"{ORCHESTRATOR_URL}/scenario/{scenario_id}")
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            raise HTTPException(status_code=404, detail="Scenario not found")
+        raise HTTPException(status_code=500, detail=f"Orchestrator error: {e}")
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=500, detail=f"Orchestrator error: {e}")
+    return resp.json()
 
 
 @router.get("/scenario/{scenario_id}/")
-def get_scenario_status(scenario_id: UUID):
-    status = fake_db.get(scenario_id)
-    if not status:
-        return {"error": "Scenario not found"}
-    return {"scenario_id": scenario_id, "status": status}
+async def get_scenario_status(scenario_id: UUID):
+    try:
+        resp = await client.get(f"{ORCHESTRATOR_URL}/scenario/{scenario_id}")
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            raise HTTPException(status_code=404, detail="Scenario not found")
+        raise HTTPException(status_code=500, detail=f"Orchestrator error: {e}")
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=500, detail=f"Orchestrator error: {e}")
+    return resp.json()
 
 
 @router.get("/prediction/{scenario_id}/")
-def get_predictions(scenario_id: UUID):
-    return {
-        "scenario_id": scenario_id,
-        "predictions": [
-            {"value": 0.8, "label": "success"},
-            {"value": 0.2, "label": "failure"},
-        ]
-    }
+async def get_predictions(scenario_id: UUID):
+    try:
+        resp = await client.get(f"{ORCHESTRATOR_URL}/prediction/{scenario_id}")
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            raise HTTPException(status_code=404, detail="Scenario not found")
+        raise HTTPException(status_code=500, detail=f"Orchestrator error: {e}")
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=500, detail=f"Orchestrator error: {e}")
+    return resp.json()
