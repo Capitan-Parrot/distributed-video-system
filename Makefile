@@ -1,4 +1,5 @@
 COMPOSE_FILE=docker-compose.yaml
+COMPOSE_BAKE=true
 
 .PHONY: up down restart logs ps build
 

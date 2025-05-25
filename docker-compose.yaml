@@ -1,13 +1,13 @@
 services:
-  getaway:
+  gateway:
     build:
-      context: ./getaway
+      context: gateway
       dockerfile: Dockerfile
     container_name: video-analytics-gateway
     environment:
-      ORCHESTRATOR_URL: http://orchestrator:8080
+      ORCHESTRATOR_URL: http://orchestrator:8002
     ports:
-      - "8001:8000"
+      - "8001:8001"
     depends_on:
       - orchestrator
     networks:
@@ -20,17 +20,15 @@ services:
       dockerfile: Dockerfile
     container_name: video-analytics-orchestrator
     environment:
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_USER: vidanalytics
-      DB_PASSWORD: secret
-      DB_NAME: vidanalytics
-      API_PORT: 8080
-      KAFKA_BROKER: kafka:9092  # Добавляем Kafka брокер
+      CONFIG_PATH: docker.yaml
     ports:
-      - "8080:8080"
+      - "8002:8002"
     depends_on:
       postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      minio:
         condition: service_healthy
     networks:
       - video-analytics-network
@@ -42,13 +40,21 @@ services:
       dockerfile: Dockerfile
     container_name: video-analytics-runner
     environment:
-      ORCHESTRATOR_URL: http://orchestrator:8080
-      INFERENCE_URL: http://inference:8000
+      CONFIG_PATH: docker.yaml
       HEARTBEAT_INTERVAL: 10
     volumes:
       - video_data:/app/videos
+    ports:
+      - "8003:8003"
     depends_on:
-      - detection
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      detection:
+        condition: service_healthy
     networks:
       - video-analytics-network
     restart: unless-stopped
@@ -61,10 +67,15 @@ services:
     volumes:
       - model_data:/app/models
     ports:
-      - "8000:8000"
+      - "8004:8004"
     networks:
       - video-analytics-network
     restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8004/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   postgres:
     image: postgres:15-alpine
@@ -79,7 +90,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U vidanalytics" ]
-      interval: 10s
+      interval: 5s
       timeout: 5s
       retries: 5
       start_period: 10s
@@ -87,7 +98,7 @@ services:
       - video-analytics-network
 
   zookeeper:
-    container_name: zookeeper
+    container_name: video-analytics-zookeeper
     image: confluentinc/cp-zookeeper:latest
     restart: on-failure
     ports:
@@ -102,7 +113,7 @@ services:
 
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
-    container_name: kafka-ui
+    container_name: video-analytics-kafka-ui
     ports:
       - "8084:8080"
     restart: on-failure
@@ -117,7 +128,7 @@ services:
       - video-analytics-network
 
   kafka:
-    container_name: kafka
+    container_name: video-analytics-kafka
     image: confluentinc/cp-kafka:latest
     restart: on-failure
     ports:
@@ -134,6 +145,12 @@ services:
       - zookeeper
     networks:
       - video-analytics-network
+    healthcheck:
+      test: [ "CMD-SHELL", "kafka-topics --bootstrap-server localhost:9191 --list" ]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+      start_period: 45s
 
   minio:
     image: bitnami/minio:latest
@@ -150,6 +167,12 @@ services:
     networks:
       - video-analytics-network
     restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:9000/minio/health/live" ]
+      interval: 5s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
 
 networks:
   video-analytics-network:

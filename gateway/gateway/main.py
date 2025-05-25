@@ -1,7 +1,7 @@
 import uvicorn
 from fastapi import FastAPI
 
-from getaway.routers import scenario
+from gateway.routers import scenario
 
 app = FastAPI(title="Scenario State Machine API")
 app.include_router(scenario.router)

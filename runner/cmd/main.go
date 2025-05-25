@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/Capitan-Parrot/distributed-video-system/runner/internal/config"
 	"github.com/Capitan-Parrot/distributed-video-system/runner/internal/kafka"
 	"github.com/Capitan-Parrot/distributed-video-system/runner/internal/runner"
 	"github.com/Capitan-Parrot/distributed-video-system/runner/internal/s3"
@@ -14,24 +15,31 @@ import (
 )
 
 func main() {
+	log.Println("Main: init...")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Init S3 client
-	s3Client, err := s3.NewMinioClient("localhost:9000", "minio-access-key", "minio-secret-key")
+	// Parse cfg
+	cfg, err := config.LoadConfig(os.Getenv("CONFIG_PATH"))
 	if err != nil {
-		log.Fatalf("Ошибка подключения к MinIO: %v", err)
+		log.Fatal(err)
+	}
+
+	// Init S3 client
+	s3Client, err := s3.NewMinioClient(cfg.Minio.Endpoint, cfg.Minio.AccessKey, cfg.Minio.SecretKey)
+	if err != nil {
+		log.Fatalf("Failed to connect MinIO: %v", err)
 	}
 
 	// Start Kafka consumer
-	consumer, err := kafka.NewConsumer([]string{"localhost:9091"}, "video-runner-group", "video-scenarios")
+	consumer, err := kafka.NewConsumer(cfg.Kafka.Brokers, cfg.Kafka.GroupID, cfg.Kafka.Topic)
 	if err != nil {
 		log.Fatalf("Failed to create Kafka consumer: %v", err)
 	}
 	defer consumer.Close()
 	go consumer.StartListening(ctx)
 
-	detectClient := detection.NewClient("http://localhost:8000/predict")
+	detectClient := detection.NewClient(cfg.Detection.Endpoint)
 
 	r := runner.New(s3Client, detectClient, consumer)
 	go r.ListenAndRun(ctx)
@@ -41,6 +49,6 @@ func main() {
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 
 	<-stop
-	log.Println("Завершение работы...")
-	cancel() // Stop goroutines
+	cancel()
+	log.Println("Main: Shutting down...")
 }

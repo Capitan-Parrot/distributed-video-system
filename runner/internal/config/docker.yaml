@@ -1,0 +1,13 @@
+minio:
+  endpoint: "minio:9000"
+  access_key: "minio-access-key"
+  secret_key: "minio-secret-key"
+
+kafka:
+  brokers:
+    - "kafka:9191"
+  group_id: "video-runner-group"
+  topic: "video-scenarios"
+
+detection:
+  endpoint: "http://detection:8004/predict"

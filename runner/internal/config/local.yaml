@@ -1,0 +1,13 @@
+minio:
+  endpoint: "localhost:9000"
+  access_key: "minio-access-key"
+  secret_key: "minio-secret-key"
+
+kafka:
+  brokers:
+    - "localhost:9091"
+  group_id: "video-runner-group"
+  topic: "video-scenarios"
+
+detection:
+  endpoint: "http://localhost:8004/predict"

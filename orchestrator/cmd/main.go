@@ -4,9 +4,11 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/Capitan-Parrot/distributed-video-system/orhestrator/internal/api"
+	"github.com/Capitan-Parrot/distributed-video-system/orhestrator/internal/config"
 	"github.com/Capitan-Parrot/distributed-video-system/orhestrator/internal/outbox"
 	"github.com/Capitan-Parrot/distributed-video-system/orhestrator/internal/s3"
 	"github.com/gorilla/mux"
@@ -15,9 +17,16 @@ import (
 )
 
 func main() {
+	log.Println("Main: init...")
+
+	// Чтение конфига
+	cfg, err := config.LoadConfig(os.Getenv("CONFIG_PATH"))
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	// Инициализация базы данных
-	dsn := "host=localhost port=5432 user=vidanalytics password=secret dbname=vidanalytics sslmode=disable"
-	db, err := database.New(dsn)
+	db, err := database.New(cfg.Postgres.DSN)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -28,15 +37,15 @@ func main() {
 	defer db.Close()
 
 	// Инициализация s3
-	minioClient, err := s3.NewMinioClient("localhost:9000", "minio-access-key", "minio-secret-key")
+	minioClient, err := s3.NewMinioClient(cfg.Minio.Endpoint, cfg.Minio.AccessKey, cfg.Minio.SecretKey)
 	if err != nil {
-		log.Fatalf("Не удалось подключиться к MinIO: %v", err)
+		log.Fatalf("Failed connect to MinIO: %v", err)
 	}
 
 	// Горутина для обработки аутбокса
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go outbox.StartOutboxDispatcher(ctx, db, []string{"localhost:9091"}, "video-scenarios", 5*time.Second)
+	go outbox.StartOutboxDispatcher(ctx, db, cfg.Kafka.Brokers, cfg.Kafka.Topic, 5*time.Second)
 
 	// Настройка роутера
 	r := mux.NewRouter()

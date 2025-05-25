@@ -6,11 +6,11 @@ install:
 
 # Запуск сервера
 run:
-	poetry run uvicorn getaway.main:app --host 0.0.0.0 --port 8080
+	poetry run uvicorn gateway.main:app --host 0.0.0.0 --port 8080
 
 # Запуск в dev-режиме с автоперезапуском
 dev:
-	poetry run uvicorn getaway.main:app --reload --host 0.0.0.0 --port 8080
+	poetry run uvicorn gateway.main:app --reload --host 0.0.0.0 --port 8080
 
 # Проверка кода
 lint:
@@ -22,8 +22,8 @@ format:
 
 # Сборка Docker-образа
 docker-build:
-	docker build -t getaway .
+	docker build -t gateway .
 
 # Запуск контейнера
 docker-run:
-	docker run -p 8000:8000 getaway -d
+	docker run -p 8000:8000 gateway -d
