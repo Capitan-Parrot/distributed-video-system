@@ -2,7 +2,6 @@ package database
 
 import (
 	"database/sql"
-	"errors"
 	"time"
 
 	"github.com/Capitan-Parrot/distributed-video-system/orhestrator/internal/models"
@@ -23,9 +22,6 @@ func (d *Database) GetScenarioByID(scenarioID string) (models.Scenario, error) {
 	)
 
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return models.Scenario{}, nil
-		}
 		return models.Scenario{}, err
 	}
 

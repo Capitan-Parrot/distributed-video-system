@@ -17,7 +17,7 @@ func (h *Handlers) GetPredictionsHandler(w http.ResponseWriter, r *http.Request)
 
 	// Проверка существования сценария
 	var exists bool
-	err := h.db.Db.QueryRow("SELECT 1 FROM scenarios WHERE id = ?", scenarioID).Scan(&exists)
+	err := h.db.Db.QueryRow("SELECT 1 FROM scenarios WHERE id = $1", scenarioID).Scan(&exists)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			http.Error(w, "Scenario not found", http.StatusNotFound)

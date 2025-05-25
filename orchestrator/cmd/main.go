@@ -53,11 +53,11 @@ func main() {
 
 	// Регистрация обработчиков
 	r.HandleFunc("/scenario", handlers.CreateScenarioHandler).Methods("POST")
-	r.HandleFunc("/scenario/{scenario_id}", handlers.UpdateScenarioStatusHandler).Methods("POST")
 	r.HandleFunc("/scenario/{scenario_id}", handlers.GetScenarioStatusHandler).Methods("GET")
+	r.HandleFunc("/scenario/{scenario_id}", handlers.UpdateScenarioStatusHandler).Methods("POST")
 	r.HandleFunc("/prediction/{scenario_id}", handlers.GetPredictionsHandler).Methods("GET")
 
 	// Запуск сервера
-	log.Println("Starting orchestrator API server on :8080")
-	log.Fatal(http.ListenAndServe(":8080", r))
+	log.Println("Starting orchestrator API server on :8002")
+	log.Fatal(http.ListenAndServe(":8002", r))
 }

@@ -131,50 +131,43 @@ func (r *Runner) processScenario(ctx context.Context, cmd ScenarioCommand) error
 
 // extractFramesFromVideo извлекает кадры с использованием ffmpeg
 func (r *Runner) extractFramesFromVideo(ctx context.Context, videoPath string, cmd ScenarioCommand) error {
-	// Запускаем ffmpeg процесс для извлечения кадров
+	tempDir, err := os.MkdirTemp("", "frames")
+	if err != nil {
+		return fmt.Errorf("create temp dir: %w", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	// Извлекаем кадры в отдельные JPEG-файлы
+	outputPattern := filepath.Join(tempDir, "frame-%04d.jpg")
 	cmdLine := exec.Command(
-		"ffmpeg", "-i", videoPath, "-vf", "fps=1", // Извлекаем 1 кадр в секунду
-		"-q:v", "2", "-f", "image2pipe", "pipe:1",
+		"ffmpeg", "-i", videoPath, "-vf", "fps=1", "-q:v", "2", outputPattern,
 	)
 
-	// Запускаем процесс
-	stdoutPipe, err := cmdLine.StdoutPipe()
+	if err := cmdLine.Run(); err != nil {
+		return fmt.Errorf("ffmpeg error: %w", err)
+	}
+
+	files, err := filepath.Glob(filepath.Join(tempDir, "frame-*.jpg"))
 	if err != nil {
-		return fmt.Errorf("stdout pipe error: %w", err)
+		return fmt.Errorf("glob error: %w", err)
 	}
 
-	if err := cmdLine.Start(); err != nil {
-		return fmt.Errorf("ffmpeg start error: %w", err)
-	}
-	defer cmdLine.Wait()
+	for i, file := range files {
+		if i%frameSkip != 0 {
+			continue
+		}
 
-	frameCount := 0
-	buf := make([]byte, 1024*1024) // Буфер для чтения данных
-
-	for {
 		select {
 		case <-ctx.Done():
 			log.Printf("Runner %s: received stop", cmd.ScenarioID)
 			return nil
 		default:
-			n, err := stdoutPipe.Read(buf)
-			if err != nil && err.Error() != "EOF" {
-				log.Printf("Runner %s: error reading frame data: %v", cmd.ScenarioID, err)
-				continue
-			}
-			if n == 0 {
-				log.Printf("Runner %s: video extraction finished", cmd.ScenarioID)
-				return nil
-			}
-
-			// Пропускаем кадры
-			frameCount++
-			if frameCount%frameSkip != 0 {
+			frameData, err := os.ReadFile(file)
+			if err != nil {
+				log.Printf("Runner %s: read frame error: %v", cmd.ScenarioID, err)
 				continue
 			}
 
-			// Отправляем кадр в детекцию
-			frameData := buf[:n]
 			go func(frame []byte) {
 				if err := r.detectionClient.SendFrame(frame, cmd.ScenarioID); err != nil {
 					log.Printf("Runner %s: detection error: %v", cmd.ScenarioID, err)
@@ -182,4 +175,7 @@ func (r *Runner) extractFramesFromVideo(ctx context.Context, videoPath string, c
 			}(frameData)
 		}
 	}
+
+	log.Printf("Runner %s: finished sending %d frames", cmd.ScenarioID, len(files))
+	return nil
 }

@@ -3,9 +3,11 @@ package detection
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"log"
 	"mime/multipart"
 	"net/http"
+	"net/textproto"
 )
 
 type Client struct {
@@ -21,12 +23,23 @@ func (c *Client) SendFrame(imageData []byte, scenarioID string) error {
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)
 
-	part, err := writer.CreateFormFile("file", "frame.jpg")
+	// Создаем form field с правильным Content-Type
+	h := make(textproto.MIMEHeader)
+	h.Set("Content-Disposition", `form-data; name="file"; filename="frame.jpg"`)
+	h.Set("Content-Type", "image/jpeg")
+
+	part, err := writer.CreatePart(h)
 	if err != nil {
-		return fmt.Errorf("create form file: %w", err)
+		return fmt.Errorf("create form part: %w", err)
 	}
-	part.Write(imageData)
-	writer.Close()
+
+	if _, err := part.Write(imageData); err != nil {
+		return fmt.Errorf("write image data: %w", err)
+	}
+
+	if err := writer.Close(); err != nil {
+		return fmt.Errorf("close writer: %w", err)
+	}
 
 	req, err := http.NewRequest("POST", c.URL+"/predict", &buf)
 	if err != nil {
@@ -41,7 +54,8 @@ func (c *Client) SendFrame(imageData []byte, scenarioID string) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("bad status: %s", resp.Status)
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("bad status: %s, error: %s", resp.Status, bodyBytes)
 	}
 
 	log.Printf("Detection[%s]: success (%s)", scenarioID, resp.Status)

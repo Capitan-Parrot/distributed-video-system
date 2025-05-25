@@ -10,4 +10,4 @@ kafka:
   topic: "video-scenarios"
 
 detection:
-  endpoint: "http://detection:8004/predict"
+  endpoint: "http://detection:8004"

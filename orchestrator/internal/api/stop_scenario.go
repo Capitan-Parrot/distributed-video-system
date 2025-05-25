@@ -4,12 +4,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/Capitan-Parrot/distributed-video-system/orhestrator/internal/models"
-	"github.com/Capitan-Parrot/distributed-video-system/orhestrator/internal/utils"
 	"github.com/gorilla/mux"
 )
 
@@ -17,12 +15,6 @@ import (
 func (h *Handlers) UpdateScenarioStatusHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	scenarioID := vars["scenario_id"]
-
-	var statusUpdate models.StatusUpdate
-	if err := json.NewDecoder(r.Body).Decode(&statusUpdate); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
 
 	// Проверка существования сценария и получение текущего статуса
 	currentStatus, err := h.db.GetScenarioStatus(scenarioID)
@@ -34,11 +26,11 @@ func (h *Handlers) UpdateScenarioStatusHandler(w http.ResponseWriter, r *http.Re
 		}
 		return
 	}
-
-	// Проверка допустимости перехода статуса
-	if !utils.IsValidStatusTransition(currentStatus, statusUpdate.Status) {
-		http.Error(w, fmt.Sprintf("Invalid status transition from %s to %s", currentStatus, statusUpdate.Status), http.StatusBadRequest)
-		return
+	var newStatus models.CommandAction
+	if models.CommandAction(currentStatus) == models.CommandStart {
+		newStatus = models.CommandStart
+	} else {
+		newStatus = models.CommandStop
 	}
 
 	// Начинаем транзакцию
@@ -51,8 +43,7 @@ func (h *Handlers) UpdateScenarioStatusHandler(w http.ResponseWriter, r *http.Re
 
 	// Обновление статуса в БД
 	_, err = tx.Exec(
-		"UPDATE scenarios SET status = ?, updated_at = ? WHERE id = ?",
-		statusUpdate.Status, now, scenarioID,
+		"UPDATE scenarios SET status = $1, updated_at = $2 WHERE id = $3", newStatus, now, scenarioID,
 	)
 	if err != nil {
 		tx.Rollback()
@@ -73,7 +64,7 @@ func (h *Handlers) UpdateScenarioStatusHandler(w http.ResponseWriter, r *http.Re
 	}
 
 	// Возвращаем обновленный статус
-	response := map[string]string{"id": scenarioID, "status": statusUpdate.Status}
+	response := map[string]string{"id": scenarioID, "status": string(newStatus)}
 	w.Header().Set("Content-Type", "application/json")
 	err = json.NewEncoder(w).Encode(response)
 	if err != nil {

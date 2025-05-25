@@ -1,7 +1,9 @@
 package api
 
 import (
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/gorilla/mux"
@@ -14,7 +16,11 @@ func (h *Handlers) GetScenarioStatusHandler(w http.ResponseWriter, r *http.Reque
 
 	row, err := h.db.GetScenarioByID(scenarioID)
 	if err != nil {
-		http.Error(w, "Database error", http.StatusInternalServerError)
+		if errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, "Scenario not found", http.StatusNotFound)
+		} else {
+			http.Error(w, "Database error", http.StatusInternalServerError)
+		}
 		return
 	}
 

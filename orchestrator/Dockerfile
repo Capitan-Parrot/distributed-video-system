@@ -12,7 +12,7 @@ RUN go mod download
 COPY . .
 
 # Сборка приложения
-RUN go build -o orchestrator ./cmd
+RUN CGO_ENABLED=0 go build -x -o orchestrator ./cmd
 
 # Финальный образ
 FROM alpine:latest
