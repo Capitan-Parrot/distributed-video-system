@@ -1,14 +1,18 @@
+import json
 import os
-from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, File, UploadFile
+from botocore.exceptions import ClientError
+from fastapi import APIRouter, HTTPException, UploadFile, File
+from uuid import UUID
 import httpx
 
-router = APIRouter()
+from gateway.s3 import s3Client
+
 
 ORCHESTRATOR_URL = os.getenv("ORCHESTRATOR_URL", "http://localhost:8080")
-print("Using orchestrator:", ORCHESTRATOR_URL)
+S3_BUCKET = os.getenv("PREDICTIONS_BUCKET", "predictions")
 
+router = APIRouter()
 client = httpx.AsyncClient(timeout=10.0)
 
 
@@ -67,10 +71,50 @@ async def change_scenario_status(scenario_id: UUID):
 @router.get("/prediction/{scenario_id}/")
 async def get_predictions(scenario_id: UUID):
     try:
-        resp = await client.get(f"{ORCHESTRATOR_URL}/prediction/{scenario_id}")
-        resp.raise_for_status()
-    except httpx.HTTPStatusError as e:
-        raise parse_httpx_error(e)
-    except httpx.HTTPError as e:
-        raise HTTPException(status_code=500, detail=f"Orchestrator HTTPError: {e}")
-    return resp.json()
+        folder_prefix = f"{str(scenario_id)}/"
+        results = []
+
+        # Получаем список объектов в папке
+        objects = s3Client.list_objects_v2(
+            Bucket=S3_BUCKET,
+            Prefix=folder_prefix,
+            Delimiter='/'
+        )
+
+        if 'Contents' not in objects:
+            raise HTTPException(status_code=404, detail="No predictions found for this scenario")
+
+        # Обрабатываем каждый файл
+        for obj in objects['Contents']:
+            if obj['Key'].endswith('/'):
+                continue
+
+            file_key = obj['Key']
+            try:
+                response = s3Client.get_object(Bucket=S3_BUCKET, Key=file_key)
+                file_content = response['Body'].read().decode('utf-8')
+                results.append({
+                    "frame": file_key.split('/')[1],
+                    "predictions": json.loads(file_content),
+                })
+            except ClientError:
+                continue
+            except json.JSONDecodeError:
+                continue
+
+        if not results:
+            raise HTTPException(status_code=404, detail="No valid prediction files found")
+
+        results.sort(key=lambda name: int(name['frame'].split('.')[0]))
+
+        return {
+            "scenario_id": str(scenario_id),
+            "results": results
+        }
+
+    except ClientError as e:
+        if e.response['Error']['Code'] == 'NoSuchBucket':
+            raise HTTPException(status_code=404, detail="Predictions bucket not found")
+        raise HTTPException(status_code=500, detail=f"S3 error: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")

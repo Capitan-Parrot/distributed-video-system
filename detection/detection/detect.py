@@ -1,5 +1,5 @@
 from PIL import ImageFile
-
+import time
 from ultralytics import YOLO
 
 
@@ -18,5 +18,5 @@ def predict(image: ImageFile.ImageFile) -> list[dict]:
                 'score': float(score),
                 'box': [x1, y1, x2, y2]
             })
-
+    time.sleep(1)
     return detections

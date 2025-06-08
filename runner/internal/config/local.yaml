@@ -6,7 +6,7 @@ minio:
 kafka:
   brokers:
     - "localhost:9091"
-  group_id: "video-runner-group"
+  group_id: "video-runner-group4"
   topic: "video-scenarios"
 
 detection:

@@ -1,9 +1,14 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"time"
 
 	"github.com/Capitan-Parrot/distributed-video-system/orhestrator/internal/models"
@@ -32,12 +37,39 @@ func (h *Handlers) CreateScenarioHandler(w http.ResponseWriter, r *http.Request)
 
 	// Генерация ID и имени объекта
 	id := uuid.New().String()
-	objectName := fmt.Sprintf("%s.mp4", id)
+	tempDir := os.TempDir()
 
-	// Загружаем напрямую в S3
-	videoURL, err := h.s3.UploadFileStream("videos", objectName, file, size)
+	// Сохраняем видео во временный файл
+	videoPath := filepath.Join(tempDir, fmt.Sprintf("%s.mp4", id))
+	tempFile, err := os.Create(videoPath)
 	if err != nil {
-		http.Error(w, "Failed to upload to S3", http.StatusInternalServerError)
+		http.Error(w, "Failed to create temp file", http.StatusInternalServerError)
+		return
+	}
+	defer os.Remove(videoPath)
+	defer tempFile.Close()
+	if _, err := io.Copy(tempFile, file); err != nil {
+		http.Error(w, "Failed to save video file", http.StatusInternalServerError)
+		return
+	}
+	tempFile.Close()
+
+	// Извлекаем кадры из видео
+	framesPath := filepath.Join(tempDir, fmt.Sprintf("frames_%s", id))
+	if err := os.MkdirAll(framesPath, 0755); err != nil {
+		http.Error(w, fmt.Sprintf("failed to create frames directory: %v", err), http.StatusInternalServerError)
+	}
+	defer os.RemoveAll(framesPath)
+	frames, err := extractFrames(framesPath, videoPath)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to extract frames: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Сохраняем в S3
+	err = h.saveFrames(id, frames)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to save frames: %v", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -53,7 +85,7 @@ func (h *Handlers) CreateScenarioHandler(w http.ResponseWriter, r *http.Request)
 	scenario := models.Scenario{
 		ID:          id,
 		Status:      initialStatus,
-		VideoSource: videoURL,
+		VideoSource: fmt.Sprintf("frames/%s", id),
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
@@ -77,8 +109,69 @@ func (h *Handlers) CreateScenarioHandler(w http.ResponseWriter, r *http.Request)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]string{
+	json.NewEncoder(w).Encode(map[string]interface{}{
 		"id":     id,
 		"status": initialStatus,
 	})
+}
+
+// extractFrames извлекает кадры из видео и загружает их в S3
+func extractFrames(framesPath, videoPath string) ([]string, error) {
+	// Извлекаем кадры с помощью ffmpeg
+	framePattern := filepath.Join(framesPath, "frame_%04d.jpg")
+	cmd := exec.Command("ffmpeg",
+		"-i", videoPath,
+		"-vf", "fps=1", // 1 кадр в секунду, можно настроить
+		"-q:v", "2", // Качество JPEG
+		framePattern,
+	)
+
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("ffmpeg failed: %w, stderr: %s", err, stderr.String())
+	}
+
+	// Получаем список сгенерированных файлов
+	files, err := filepath.Glob(filepath.Join(framesPath, "frame_*.jpg"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to list frame files: %w", err)
+	}
+
+	return files, nil
+}
+
+func (h *Handlers) saveFrames(scenarioID string, files []string) error {
+	frameCount := len(files)
+	if frameCount == 0 {
+		return fmt.Errorf("no frames extracted from video")
+	}
+
+	// Загружаем каждый кадр в S3
+	for _, framePath := range files {
+		frameFile, err := os.Open(framePath)
+		if err != nil {
+			return fmt.Errorf("failed to open frame file %s: %w", framePath, err)
+		}
+
+		frameInfo, err := frameFile.Stat()
+		if err != nil {
+			frameFile.Close()
+			return fmt.Errorf("failed to get frame file info: %w", err)
+		}
+
+		// Имя файла в S3: frames/{scenarioID}/frame_0001.jpg
+		fileName := filepath.Base(framePath)
+		objectName := fmt.Sprintf("%s/%s", scenarioID, fileName)
+
+		_, err = h.s3.UploadFileStream("frames", objectName, frameFile, frameInfo.Size())
+		frameFile.Close()
+
+		if err != nil {
+			return fmt.Errorf("failed to upload frame %s to S3: %w", fileName, err)
+		}
+	}
+
+	return nil
 }

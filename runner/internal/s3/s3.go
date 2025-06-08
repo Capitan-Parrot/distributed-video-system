@@ -3,11 +3,13 @@ package s3
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/url"
 	"strings"
 
+	"github.com/Capitan-Parrot/distributed-video-system/runner/internal/models"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 )
@@ -28,7 +30,7 @@ func NewMinioClient(endpoint, accessKey, secretKey string) (*Client, error) {
 	return &Client{client: client}, nil
 }
 
-func (c *Client) DownloadFileFromURL(fileURL string) ([]byte, error) {
+func (c *Client) DownloadFilesFromURL(fileURL string) ([][]byte, error) {
 	u, err := url.Parse(fileURL)
 	if err != nil {
 		return nil, err
@@ -38,19 +40,94 @@ func (c *Client) DownloadFileFromURL(fileURL string) ([]byte, error) {
 	if len(parts) != 2 {
 		return nil, err
 	}
-	bucket, object := parts[0], parts[1]
+	bucket, folder := parts[0], parts[1]
 
-	obj, err := c.client.GetObject(context.Background(), bucket, object, minio.GetObjectOptions{})
-	if err != nil {
-		return nil, err
+	objectCh := c.client.ListObjects(context.Background(), bucket, minio.ListObjectsOptions{
+		Prefix:    folder,
+		Recursive: true,
+	})
+
+	var files [][]byte
+
+	// Обрабатываем каждый объект
+	for object := range objectCh {
+		if object.Err != nil {
+			return nil, object.Err
+		}
+
+		// Пропускаем саму папку (если она есть в списке)
+		if strings.HasSuffix(object.Key, "/") {
+			continue
+		}
+
+		// Получаем объект
+		obj, err := c.client.GetObject(context.Background(), bucket, object.Key, minio.GetObjectOptions{})
+		if err != nil {
+			return nil, err
+		}
+
+		// Читаем содержимое файла
+		buf := new(bytes.Buffer)
+		_, err = io.Copy(buf, obj)
+		obj.Close()
+		if err != nil {
+			return nil, err
+		}
+
+		files = append(files, buf.Bytes())
 	}
-	defer obj.Close()
 
-	buf := new(bytes.Buffer)
-	_, err = io.Copy(buf, obj)
+	return files, nil
+}
+
+// SaveDetectionResults сохраняет результаты детекции в бакет predictions
+// в папку с именем сценария под именем файла - индексом файла
+func (c *Client) SaveDetectionResults(scenarioID string, fileIndex int, detections []models.Detection) error {
+	// Конвертируем детекции в JSON
+	jsonData, err := json.Marshal(detections)
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("failed to marshal detections: %w", err)
 	}
 
-	return buf.Bytes(), nil
+	// Формируем путь для сохранения
+	objectPath := fmt.Sprintf("%s/%d.json", scenarioID, fileIndex)
+
+	// Загружаем данные в MinIO
+	_, err = c.client.PutObject(
+		context.Background(),
+		"predictions",             // бакет
+		objectPath,                // путь к файлу
+		bytes.NewReader(jsonData), // данные
+		int64(len(jsonData)),      // размер данных
+		minio.PutObjectOptions{
+			ContentType: "application/json",
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("failed to save detections to S3: %w", err)
+	}
+
+	return nil
+}
+
+// CountFilesInFolder возвращает количество файлов в указанной папке бакета predictions
+func (c *Client) CountFilesInFolder(folderPath string) (int, error) {
+	count := 0
+	objectCh := c.client.ListObjects(context.Background(), "predictions", minio.ListObjectsOptions{
+		Prefix: folderPath,
+	})
+
+	for object := range objectCh {
+		if object.Err != nil {
+			return 0, fmt.Errorf("error listing objects: %w", object.Err)
+		}
+
+		if strings.HasSuffix(object.Key, "/") {
+			continue
+		}
+
+		count++
+	}
+
+	return count, nil
 }

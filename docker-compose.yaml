@@ -147,10 +147,10 @@ services:
       - video-analytics-network
     healthcheck:
       test: [ "CMD-SHELL", "kafka-topics --bootstrap-server localhost:9191 --list" ]
-      interval: 5s
+      interval: 10s
       timeout: 5s
       retries: 3
-      start_period: 45s
+      start_period: 60s
 
   minio:
     image: bitnami/minio:latest
@@ -158,7 +158,7 @@ services:
     environment:
       MINIO_ROOT_USER: minio-access-key
       MINIO_ROOT_PASSWORD: minio-secret-key
-      MINIO_DEFAULT_BUCKETS: videos  # Создаём бакет при запуске
+      MINIO_DEFAULT_BUCKETS: "frames,predictions"  # Создаём бакет при запуске
     ports:
       - "9000:9000"  # доступ для API
       - "9001:9001"  # доступ для Web UI

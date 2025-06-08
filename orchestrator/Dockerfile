@@ -19,7 +19,7 @@ FROM alpine:latest
 
 
 # Устанавливаем сертификаты (для HTTPS запросов и т.д.)
-RUN apk --no-cache add ca-certificates
+RUN apk --no-cache add ca-certificates ffmpeg
 
 # Устанавливаем рабочую директорию
 WORKDIR /root/

@@ -3,11 +3,7 @@ package runner
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"sync"
 
 	"github.com/Capitan-Parrot/distributed-video-system/runner/internal/kafka"
@@ -17,8 +13,7 @@ import (
 )
 
 const (
-	frameSkip    = 10
-	tmpVideoPath = "/tmp"
+	retries = 5
 )
 
 type ScenarioCommand struct {
@@ -108,74 +103,49 @@ func (r *Runner) Stop(scenarioID string) {
 	}
 }
 
-// processScenario скачивает видео, извлекает кадры и отправляет их на детекцию
+// processScenario скачивает кадры, отправляет их на детекцию и сохраняет в s3
 func (r *Runner) processScenario(ctx context.Context, cmd ScenarioCommand) error {
-	log.Printf("Runner %s: downloading video from %s", cmd.ScenarioID, cmd.VideoSource)
+	log.Printf("Runner %s: downloading frames from %s", cmd.ScenarioID, cmd.VideoSource)
 
-	// Скачиваем видео с S3
-	videoData, err := r.s3Client.DownloadFileFromURL(cmd.VideoSource)
+	frames, err := r.s3Client.DownloadFilesFromURL(cmd.VideoSource)
 	if err != nil {
-		return fmt.Errorf("download error: %w", err)
+		return err
 	}
 
-	// Создаём временный файл для видео
-	tmpPath := filepath.Join(tmpVideoPath, "video_"+cmd.ScenarioID+".mp4")
-	if err := os.WriteFile(tmpPath, videoData, 0644); err != nil {
-		return fmt.Errorf("write temp file: %w", err)
-	}
-	defer os.Remove(tmpPath)
-
-	// Используем ffmpeg для извлечения кадров
-	return r.extractFramesFromVideo(ctx, tmpPath, cmd)
-}
-
-// extractFramesFromVideo извлекает кадры с использованием ffmpeg
-func (r *Runner) extractFramesFromVideo(ctx context.Context, videoPath string, cmd ScenarioCommand) error {
-	tempDir, err := os.MkdirTemp("", "frames")
+	processedFramesCount, err := r.s3Client.CountFilesInFolder(cmd.ScenarioID)
 	if err != nil {
-		return fmt.Errorf("create temp dir: %w", err)
-	}
-	defer os.RemoveAll(tempDir)
-
-	// Извлекаем кадры в отдельные JPEG-файлы
-	outputPattern := filepath.Join(tempDir, "frame-%04d.jpg")
-	cmdLine := exec.Command(
-		"ffmpeg", "-i", videoPath, "-vf", "fps=1", "-q:v", "2", outputPattern,
-	)
-
-	if err := cmdLine.Run(); err != nil {
-		return fmt.Errorf("ffmpeg error: %w", err)
+		return err
 	}
 
-	files, err := filepath.Glob(filepath.Join(tempDir, "frame-*.jpg"))
-	if err != nil {
-		return fmt.Errorf("glob error: %w", err)
-	}
+	for idx := processedFramesCount; idx < len(frames); idx++ {
+		success := false
 
-	for i, file := range files {
-		if i%frameSkip != 0 {
-			continue
-		}
-
-		select {
-		case <-ctx.Done():
-			log.Printf("Runner %s: received stop", cmd.ScenarioID)
-			return nil
-		default:
-			frameData, err := os.ReadFile(file)
-			if err != nil {
-				log.Printf("Runner %s: read frame error: %v", cmd.ScenarioID, err)
-				continue
-			}
-
-			go func(frame []byte) {
-				if err := r.detectionClient.SendFrame(frame, cmd.ScenarioID); err != nil {
+		for attempt := 0; !success && attempt < retries; attempt++ {
+			select {
+			case <-ctx.Done():
+				log.Printf("Runner %s: received stop", cmd.ScenarioID)
+				return nil
+			default:
+				detections, err := r.detectionClient.SendFrame(frames[idx], cmd.ScenarioID)
+				if err != nil {
 					log.Printf("Runner %s: detection error: %v", cmd.ScenarioID, err)
+					continue
 				}
-			}(frameData)
+
+				if err := r.s3Client.SaveDetectionResults(cmd.ScenarioID, idx, detections); err != nil {
+					log.Printf("Runner %s: save detection error: %v", cmd.ScenarioID, err)
+					continue
+				}
+
+				success = true
+			}
+		}
+
+		if !success {
+			log.Printf("Runner %s: failed to process frame %d", cmd.ScenarioID, idx)
 		}
 	}
 
-	log.Printf("Runner %s: finished sending %d frames", cmd.ScenarioID, len(files))
+	log.Printf("Runner %s: finished sending %d frames", cmd.ScenarioID, len(frames))
 	return nil
 }
