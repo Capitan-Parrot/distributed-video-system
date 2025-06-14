@@ -1,16 +1,21 @@
 package kafka
 
 import (
+	"encoding/json"
+	"fmt"
+	"log"
+
+	"github.com/Capitan-Parrot/distributed-video-system/runner/internal/models"
 	"github.com/IBM/sarama"
 )
 
 type Producer struct {
-	Producer sarama.SyncProducer
-	Topic    string
+	producer sarama.SyncProducer
+	topic    string
 }
 
-// NewKafkaProducer создаёт продюсер с настройками
-func NewKafkaProducer(brokers []string, topic string) (*Producer, error) {
+// NewProducer создаёт продюсер с настройками
+func NewProducer(brokers []string, topic string) (*Producer, error) {
 	config := sarama.NewConfig()
 	config.Producer.Return.Successes = true
 	config.Producer.RequiredAcks = sarama.WaitForAll
@@ -21,29 +26,36 @@ func NewKafkaProducer(brokers []string, topic string) (*Producer, error) {
 	}
 
 	return &Producer{
-		Producer: producer,
-		Topic:    topic,
+		producer: producer,
+		topic:    topic,
 	}, nil
 }
 
-//// SendOutboxMessageToKafka отправляет одно сообщение в Kafka
-//func (kp *Producer) SendOutboxMessageToKafka(msg *models.OutboxMessage) error {
-//	payload, err := json.Marshal(msg)
-//	if err != nil {
-//		return err
-//	}
-//
-//	kafkaMsg := &sarama.ProducerMessage{
-//		Topic: kp.Topic,
-//		Key:   sarama.StringEncoder(msg.ScenarioID),
-//		Value: sarama.ByteEncoder(payload),
-//	}
-//
-//	partition, offset, err := kp.Producer.SendMessage(kafkaMsg)
-//	if err != nil {
-//		return err
-//	}
-//
-//	log.Printf("Sent message to Kafka topic=%s partition=%d offset=%d", kp.Topic, partition, offset)
-//	return nil
-//}
+func (p *Producer) Close() error {
+	if err := p.producer.Close(); err != nil {
+		return fmt.Errorf("failed to close Kafka producer: %w", err)
+	}
+	return nil
+}
+
+// SendHeartbeat отправляет одно сообщение в Kafka
+func (p *Producer) SendHeartbeat(msg models.Heartbeat) error {
+	payload, err := json.Marshal(msg)
+	if err != nil {
+		return err
+	}
+
+	kafkaMsg := &sarama.ProducerMessage{
+		Topic: p.topic,
+		Key:   sarama.StringEncoder(msg.ScenarioID),
+		Value: sarama.ByteEncoder(payload),
+	}
+
+	partition, offset, err := p.producer.SendMessage(kafkaMsg)
+	if err != nil {
+		return err
+	}
+
+	log.Printf("Sent message to Kafka topic=%s partition=%d offset=%d", p.topic, partition, offset)
+	return nil
+}

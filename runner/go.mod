@@ -5,7 +5,9 @@ go 1.24.0
 require (
 	github.com/IBM/sarama v1.43.3
 	github.com/caarlos0/env/v11 v11.2.2
+	github.com/lib/pq v1.10.9
 	github.com/minio/minio-go/v7 v7.0.77
+	github.com/samber/lo v1.47.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 

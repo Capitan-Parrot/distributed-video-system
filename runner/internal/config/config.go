@@ -10,6 +10,10 @@ import (
 
 // Config структура конфига
 type Config struct {
+	Postgres struct {
+		DSN string `yaml:"dsn" env:"DATABASE_DSN"`
+	} `yaml:"postgres"`
+
 	Minio struct {
 		Endpoint  string `yaml:"endpoint" env:"MINIO_ENDPOINT"`
 		AccessKey string `yaml:"access_key" env:"MINIO_ACCESS_KEY"`
@@ -17,9 +21,10 @@ type Config struct {
 	} `yaml:"minio"`
 
 	Kafka struct {
-		Brokers []string `yaml:"brokers" env:"KAFKA_BROKERS" envSeparator:","`
-		GroupID string   `yaml:"group_id" env:"KAFKA_GROUP_ID"`
-		Topic   string   `yaml:"topic" env:"KAFKA_TOPIC"`
+		Brokers        []string `yaml:"brokers" env:"KAFKA_BROKERS" envSeparator:","`
+		GroupID        string   `yaml:"group_id" env:"KAFKA_GROUP_ID"`
+		ScenarioTopic  string   `yaml:"scenario_topic" env:"SCENARIO_TOPIC"`
+		HeartbeatTopic string   `yaml:"heartbeat_topic" env:"HEARTBEAT_TOPIC"`
 	} `yaml:"kafka"`
 
 	Detection struct {

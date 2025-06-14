@@ -1,7 +1,8 @@
 package database
 
 import (
-	"database/sql"
+	"context"
+	"log"
 	"time"
 
 	"github.com/Capitan-Parrot/distributed-video-system/orhestrator/internal/models"
@@ -10,7 +11,7 @@ import (
 // GetScenarioByID retrieves a scenario by its ID
 func (d *Database) GetScenarioByID(scenarioID string) (models.Scenario, error) {
 	var s models.Scenario
-	err := d.Db.QueryRow(
+	err := d.DB.QueryRow(
 		"SELECT id, status, video_source, created_at, updated_at FROM scenarios WHERE id = $1",
 		scenarioID,
 	).Scan(
@@ -28,24 +29,13 @@ func (d *Database) GetScenarioByID(scenarioID string) (models.Scenario, error) {
 	return s, nil
 }
 
-// GetScenarioStatus retrieves only the status of a scenario by its ID
-func (d *Database) GetScenarioStatus(scenarioID string) (string, error) {
-	var status string
-	err := d.Db.QueryRow(
-		"SELECT status FROM scenarios WHERE id = $1",
-		scenarioID,
-	).Scan(&status)
-
-	return status, err
-}
-
 // CreateScenario creates a new scenario record
-func (d *Database) CreateScenario(tx *sql.Tx, scenario *models.Scenario) error {
+func (d *Database) CreateScenario(ctx context.Context, scenario *models.Scenario) error {
 	now := time.Now()
 	scenario.CreatedAt = now
 	scenario.UpdatedAt = now
 
-	_, err := tx.Exec(
+	_, err := d.querier(ctx).Exec(
 		"INSERT INTO scenarios (id, status, video_source, created_at, updated_at) VALUES ($1, $2, $3, $4, $5)",
 		scenario.ID,
 		scenario.Status,
@@ -57,16 +47,13 @@ func (d *Database) CreateScenario(tx *sql.Tx, scenario *models.Scenario) error {
 	return err
 }
 
-// UpdateScenario updates an existing scenario
-func (d *Database) UpdateScenario(scenario *models.Scenario) error {
-	scenario.UpdatedAt = time.Now()
-
-	_, err := d.Db.Exec(
-		"UPDATE scenarios SET status = $1, video_source = $2, updated_at = $3 WHERE id = $4",
-		scenario.Status,
-		scenario.VideoSource,
-		scenario.UpdatedAt,
-		scenario.ID,
+// UpdateScenarioStatus updates an existing scenario status in tx
+func (d *Database) UpdateScenarioStatus(ctx context.Context, scenarioID string, status models.ScenarioStatus) error {
+	log.Printf("UpdateScenarioStatus started %s %s\n", scenarioID, status)
+	_, err := d.querier(ctx).Exec(
+		"UPDATE scenarios SET status = $1, updated_at = NOW() WHERE id = $2",
+		status,
+		scenarioID,
 	)
 
 	return err

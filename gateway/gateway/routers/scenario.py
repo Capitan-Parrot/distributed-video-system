@@ -1,5 +1,6 @@
 import json
 import os
+from enum import Enum
 
 from botocore.exceptions import ClientError
 from fastapi import APIRouter, HTTPException, UploadFile, File
@@ -13,7 +14,7 @@ ORCHESTRATOR_URL = os.getenv("ORCHESTRATOR_URL", "http://localhost:8080")
 S3_BUCKET = os.getenv("PREDICTIONS_BUCKET", "predictions")
 
 router = APIRouter()
-client = httpx.AsyncClient(timeout=10.0)
+client = httpx.AsyncClient(timeout=30.0)
 
 
 def parse_httpx_error(e: httpx.HTTPStatusError) -> HTTPException:
@@ -56,10 +57,16 @@ async def get_scenario_status(scenario_id: UUID):
     return resp.json()
 
 
+class ScenarioAction(str, Enum):
+    START = 'start'
+    STOP = 'stop'
+
+
 @router.post("/scenario/{scenario_id}/")
-async def change_scenario_status(scenario_id: UUID):
+async def change_scenario_status(scenario_id: UUID, action: ScenarioAction):
     try:
-        resp = await client.post(f"{ORCHESTRATOR_URL}/scenario/{scenario_id}")
+        resp = await client.post(f"{ORCHESTRATOR_URL}/scenario/{scenario_id}",
+                                 params={"action": action.value})
         resp.raise_for_status()
     except httpx.HTTPStatusError as e:
         raise parse_httpx_error(e)
@@ -111,7 +118,8 @@ async def get_predictions(scenario_id: UUID):
             "scenario_id": str(scenario_id),
             "results": results
         }
-
+    except HTTPException:
+        raise
     except ClientError as e:
         if e.response['Error']['Code'] == 'NoSuchBucket':
             raise HTTPException(status_code=404, detail="Predictions bucket not found")

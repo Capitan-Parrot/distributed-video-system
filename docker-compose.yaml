@@ -6,6 +6,7 @@ services:
     container_name: video-analytics-gateway
     environment:
       ORCHESTRATOR_URL: http://orchestrator:8002
+      S3_ENDPOINT: http://minio:9000
     ports:
       - "8001:8001"
     depends_on:
@@ -79,11 +80,12 @@ services:
 
   postgres:
     image: postgres:15-alpine
-    container_name: video-analytics-postgres
+    container_name: video-analytics-postgres-orchestrator
     environment:
       POSTGRES_USER: vidanalytics
       POSTGRES_PASSWORD: secret
-      POSTGRES_DB: vidanalytics
+      POSTGRES_ORCHESTRATOR_DB: vidanalytics
+      POSTGRES_RUNNER_DB: runner
     ports:
       - "5432:5432"
     volumes:

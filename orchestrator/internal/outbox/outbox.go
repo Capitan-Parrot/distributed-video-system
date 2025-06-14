@@ -7,6 +7,7 @@ import (
 
 	"github.com/Capitan-Parrot/distributed-video-system/orhestrator/internal/database"
 	"github.com/Capitan-Parrot/distributed-video-system/orhestrator/internal/kafka"
+	"github.com/Capitan-Parrot/distributed-video-system/orhestrator/internal/models"
 )
 
 func StartOutboxDispatcher(ctx context.Context, db *database.Database, brokers []string, topic string, interval time.Duration) {
@@ -33,15 +34,35 @@ func StartOutboxDispatcher(ctx context.Context, db *database.Database, brokers [
 			}
 
 			for _, msg := range messages {
+				// Отправляем сообщение в Kafka
 				err = producer.SendOutboxMessageToKafka(&msg)
 				if err != nil {
 					log.Printf("Failed to send message to Kafka: %v", err)
 					continue
 				}
 
-				// Отмечаем сообщение как обработанное
-				if err := db.MarkOutboxMessageAsProcessed(msg.ID); err != nil {
-					log.Printf("Failed to mark outbox message as processed: %v", err)
+				// Начинаем транзакцию
+				if err := db.InTx(ctx, func(ctx context.Context) error {
+					// Отмечаем сообщение как обработанное
+					if err := db.MarkOutboxMessageAsProcessed(msg.ID); err != nil {
+						log.Printf("Failed to mark outbox message as processed: %v", err)
+					}
+
+					// Обновляем статус
+					var status models.ScenarioStatus
+					if msg.Action == models.CommandStart {
+						status = models.StatusInStartupProcessing
+					} else {
+						status = models.StatusInShutdownProcessing
+					}
+					if err := db.UpdateScenarioStatus(ctx, msg.ScenarioID, status); err != nil {
+						log.Printf("Failed to update scenario status: %v", err)
+					}
+
+					return nil
+				}); err != nil {
+					log.Println(err)
+					return
 				}
 			}
 		}

@@ -2,7 +2,7 @@ import boto3
 import os
 
 # Настройки S3
-S3_ENDPOINT = os.getenv('S3_ENDPOINT', 'http://minio:9000')
+S3_ENDPOINT = os.getenv('S3_ENDPOINT', 'http://localhost:9000')
 S3_ACCESS_KEY = os.getenv('S3_ACCESS_KEY', 'minio-access-key')
 S3_SECRET_KEY = os.getenv('S3_SECRET_KEY', 'minio-secret-key')
 

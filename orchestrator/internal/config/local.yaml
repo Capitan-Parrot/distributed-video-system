@@ -10,5 +10,6 @@ kafka:
   brokers:
     - "localhost:9091"
   group_id: "video-orchestrator-group"
-  topic: "video-scenarios"
+  scenario_topic: "video-scenarios"
+  heartbeat_topic: "heartbeats"
 

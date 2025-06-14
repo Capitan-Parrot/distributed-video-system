@@ -31,28 +31,10 @@ func (d *Database) Init() error {
 	createTables := `
 	CREATE TABLE IF NOT EXISTS scenarios (
 		id TEXT PRIMARY KEY,
-		status TEXT NOT NULL,
-		video_source TEXT NOT NULL,
-		created_at TIMESTAMP NOT NULL,
-		updated_at TIMESTAMP NOT NULL
-	);
-	
-	CREATE TABLE IF NOT EXISTS heartbeats (
-		id SERIAL PRIMARY KEY,
-		scenario_id TEXT NOT NULL,
-		status TEXT NOT NULL,
-		frame INTEGER NOT NULL,
-		timestamp TIMESTAMP NOT NULL,
-		created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-	);
-
-	CREATE TABLE IF NOT EXISTS outbox (
-		id TEXT PRIMARY KEY,
-		scenario_id TEXT NOT NULL,
 		action TEXT NOT NULL,
-		created_at TIMESTAMP NOT NULL,
-		processed_at TIMESTAMP,
-		FOREIGN KEY (scenario_id) REFERENCES scenarios(id)
+		video_source TEXT NOT NULL,
+		created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP NOT NULL
 	);
 	`
 

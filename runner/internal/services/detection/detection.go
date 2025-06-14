@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
@@ -70,6 +69,6 @@ func (c *Client) SendFrame(imageData []byte, scenarioID string) ([]models.Detect
 		return nil, fmt.Errorf("decode response: %w", err)
 	}
 
-	log.Printf("Detection[%s]: success (%s), found %d objects", scenarioID, resp.Status, len(response.Detections))
+	//log.Printf("Detection[%s]: success (%s), found %d objects", scenarioID, resp.Status, len(response.Detections))
 	return response.Detections, nil
 }

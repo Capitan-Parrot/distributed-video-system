@@ -2,9 +2,11 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -76,12 +78,6 @@ func (h *Handlers) CreateScenarioHandler(w http.ResponseWriter, r *http.Request)
 	now := time.Now()
 	initialStatus := models.StatusInitStartup
 
-	tx, err := h.db.BeginTransaction()
-	if err != nil {
-		http.Error(w, "Failed to begin transaction", http.StatusInternalServerError)
-		return
-	}
-
 	scenario := models.Scenario{
 		ID:          id,
 		Status:      initialStatus,
@@ -90,20 +86,18 @@ func (h *Handlers) CreateScenarioHandler(w http.ResponseWriter, r *http.Request)
 		UpdatedAt:   now,
 	}
 
-	if err := h.db.CreateScenario(tx, &scenario); err != nil {
-		tx.Rollback()
-		http.Error(w, "Failed to insert scenario", http.StatusInternalServerError)
-		return
-	}
+	if err := h.db.InTx(context.Background(), func(ctx context.Context) error {
+		if err := h.db.CreateScenario(ctx, &scenario); err != nil {
+			return fmt.Errorf("failed to insert scenario: %w", err)
+		}
 
-	if err := h.db.AddToOutbox(tx, id, models.CommandStart); err != nil {
-		tx.Rollback()
-		http.Error(w, "Failed to add to outbox", http.StatusInternalServerError)
-		return
-	}
+		if err := h.db.AddToOutbox(ctx, scenario.ID, models.CommandStart); err != nil {
+			return fmt.Errorf("failed to add to outbox: %w", err)
+		}
 
-	if err := tx.Commit(); err != nil {
-		http.Error(w, "Failed to commit transaction", http.StatusInternalServerError)
+		return nil
+	}); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to create scenario: %v", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -117,12 +111,19 @@ func (h *Handlers) CreateScenarioHandler(w http.ResponseWriter, r *http.Request)
 
 // extractFrames извлекает кадры из видео и загружает их в S3
 func extractFrames(framesPath, videoPath string) ([]string, error) {
+	t := time.Now()
+	fmt.Println("extractFrames started")
 	// Извлекаем кадры с помощью ffmpeg
 	framePattern := filepath.Join(framesPath, "frame_%04d.jpg")
 	cmd := exec.Command("ffmpeg",
+		"-hwaccel", "auto",
 		"-i", videoPath,
-		"-vf", "fps=1", // 1 кадр в секунду, можно настроить
-		"-q:v", "2", // Качество JPEG
+		"-vf", "fps=0.1,scale=320:-1", // 1 кадр в 10 секунд + очень низкое разрешение
+		"-q:v", "10", // Минимальное качество
+		"-threads", "0",
+		"-preset", "ultrafast",
+		"-y", // Автоподтверждение перезаписи
+		"-loglevel", "error",
 		framePattern,
 	)
 
@@ -132,7 +133,7 @@ func extractFrames(framesPath, videoPath string) ([]string, error) {
 	if err := cmd.Run(); err != nil {
 		return nil, fmt.Errorf("ffmpeg failed: %w, stderr: %s", err, stderr.String())
 	}
-
+	log.Println(time.Now().Sub(t))
 	// Получаем список сгенерированных файлов
 	files, err := filepath.Glob(filepath.Join(framesPath, "frame_*.jpg"))
 	if err != nil {

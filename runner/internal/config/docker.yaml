@@ -1,3 +1,6 @@
+postgres:
+  dsn: "host=postgres port=5432 user=vidanalytics password=secret dbname=runner sslmode=disable"
+
 minio:
   endpoint: "minio:9000"
   access_key: "minio-access-key"
@@ -7,7 +10,8 @@ kafka:
   brokers:
     - "kafka:9191"
   group_id: "video-runner-group"
-  topic: "video-scenarios"
+  scenario_topic: "video-scenarios"
+  heartbeat_topic: "heartbeats"
 
 detection:
   endpoint: "http://detection:8004"

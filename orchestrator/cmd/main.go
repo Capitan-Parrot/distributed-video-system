@@ -7,8 +7,10 @@ import (
 	"os"
 	"time"
 
+	watchdog "github.com/Capitan-Parrot/distributed-video-system/orhestrator/internal"
 	"github.com/Capitan-Parrot/distributed-video-system/orhestrator/internal/api"
 	"github.com/Capitan-Parrot/distributed-video-system/orhestrator/internal/config"
+	"github.com/Capitan-Parrot/distributed-video-system/orhestrator/internal/kafka"
 	"github.com/Capitan-Parrot/distributed-video-system/orhestrator/internal/outbox"
 	"github.com/Capitan-Parrot/distributed-video-system/orhestrator/internal/s3"
 	"github.com/gorilla/mux"
@@ -45,7 +47,19 @@ func main() {
 	// Горутина для обработки аутбокса
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go outbox.StartOutboxDispatcher(ctx, db, cfg.Kafka.Brokers, cfg.Kafka.Topic, 5*time.Second)
+	go outbox.StartOutboxDispatcher(ctx, db, cfg.Kafka.Brokers, cfg.Kafka.ScenarioTopic, 5*time.Second)
+
+	// Горутина для обработки heartbeats раннера
+	consumer, err := kafka.NewConsumer(cfg.Kafka.Brokers, cfg.Kafka.GroupID, cfg.Kafka.HeartbeatTopic)
+	if err != nil {
+		log.Fatalf("Failed to create Kafka consumer: %v", err)
+	}
+	defer consumer.Close()
+	go consumer.StartListening(ctx, db)
+
+	// Горутина для перезапуска упавших раннеров
+	watchDog := watchdog.New(db)
+	go watchDog.Start(ctx)
 
 	// Настройка роутера
 	r := mux.NewRouter()
