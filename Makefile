@@ -4,7 +4,7 @@ COMPOSE_BAKE=true
 .PHONY: up down restart logs ps build
 
 up:
-	docker-compose -f $(COMPOSE_FILE) up -d
+	docker-compose -f $(COMPOSE_FILE) up -d --scale runner=3
 
 down:
 	docker-compose -f $(COMPOSE_FILE) down

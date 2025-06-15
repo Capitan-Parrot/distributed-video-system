@@ -3,7 +3,6 @@ package kafka
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 
 	"github.com/Capitan-Parrot/distributed-video-system/runner/internal/models"
 	"github.com/IBM/sarama"
@@ -51,11 +50,11 @@ func (p *Producer) SendHeartbeat(msg models.Heartbeat) error {
 		Value: sarama.ByteEncoder(payload),
 	}
 
-	partition, offset, err := p.producer.SendMessage(kafkaMsg)
+	_, _, err = p.producer.SendMessage(kafkaMsg)
 	if err != nil {
 		return err
 	}
 
-	log.Printf("Sent message to Kafka topic=%s partition=%d offset=%d", p.topic, partition, offset)
+	//log.Printf("Sent message to Kafka topic=%s partition=%d offset=%d", p.topic, partition, offset)
 	return nil
 }

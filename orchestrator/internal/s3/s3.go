@@ -25,8 +25,7 @@ func NewMinioClient(endpoint, accessKey, secretKey string) (*Client, error) {
 	return &Client{client: client}, nil
 }
 
-func (c *Client) EnsureBucketExists(bucketName string) error {
-	ctx := context.Background()
+func (c *Client) EnsureBucketExists(ctx context.Context, bucketName string) error {
 	exists, err := c.client.BucketExists(ctx, bucketName)
 	if err != nil {
 		return err
@@ -37,13 +36,13 @@ func (c *Client) EnsureBucketExists(bucketName string) error {
 	return nil
 }
 
-func (c *Client) UploadFileStream(bucketName, objectName string, reader io.Reader, size int64) (string, error) {
-	if err := c.EnsureBucketExists(bucketName); err != nil {
+func (c *Client) UploadFileStream(ctx context.Context, bucketName, objectName string, reader io.Reader, size int64) (string, error) {
+	if err := c.EnsureBucketExists(ctx, bucketName); err != nil {
 		return "", fmt.Errorf("bucket error: %w", err)
 	}
 
 	_, err := c.client.PutObject(
-		context.Background(),
+		ctx,
 		bucketName,
 		objectName,
 		reader,

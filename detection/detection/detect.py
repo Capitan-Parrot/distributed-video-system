@@ -7,7 +7,7 @@ model = YOLO('yolov8n.pt')
 
 
 def predict(image: ImageFile.ImageFile) -> list[dict]:
-    results = model.predict(source=image, imgsz=320, conf=0.25)
+    results = model.predict(source=image, imgsz=320, conf=0.1)
     detections = []
     for result in results:
         for box in result.boxes.data.tolist():

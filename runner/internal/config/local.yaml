@@ -1,5 +1,5 @@
 postgres:
-  dsn: "host=localhost port=5433 user=vidanalytics password=secret dbname=vidanalytics sslmode=disable"
+  dsn: "host=localhost port=5432 user=vidanalytics password=secret dbname=runner sslmode=disable"
 
 minio:
   endpoint: "localhost:9000"
@@ -9,7 +9,7 @@ minio:
 kafka:
   brokers:
     - "localhost:9091"
-  group_id: "video-runner-group4"
+  group_id: "video-runner-group"
   scenario_topic: "video-scenarios"
   heartbeat_topic: "heartbeats"
 

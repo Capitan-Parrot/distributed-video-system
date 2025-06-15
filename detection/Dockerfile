@@ -7,11 +7,14 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 # 2. Ставим Poetry
-RUN pip install poetry
+RUN pip install poetry --index-url https://mirrors.aliyun.com/pypi/simple/
 
 # 3. Отключаем venv внутри Poetry и отключаем интерактив
 ENV POETRY_VIRTUALENVS_CREATE=false \
     POETRY_NO_INTERACTION=1
+
+# Установка зеркала
+RUN poetry config repositories.pypi https://mirrors.aliyun.com/pypi/simple/
 
 # 4. Рабочая директория
 WORKDIR /detection
@@ -30,4 +33,4 @@ ENV PYTHONPATH=/detection:$PYTHONPATH
 EXPOSE 8004
 
 # 9. Запуск приложения
-CMD ["uvicorn", "detection.main:app", "--host", "0.0.0.0", "--port", "8004"]
+CMD ["poetry", "run", "uvicorn", "detection.main:app", "--host", "0.0.0.0", "--port", "8004"]

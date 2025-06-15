@@ -134,7 +134,8 @@ func (h *consumerGroupHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, cl
 					log.Printf("Failed to update scenario status in DB: %v", err)
 					continue
 				}
-			} else if heartbeat.Action == models.CommandStop && scenario.Status == models.StatusInShutdownProcessing {
+			} else if heartbeat.Action == models.CommandStop &&
+				(scenario.Status == models.StatusInShutdownProcessing || scenario.Status == models.StatusActive) {
 				if err := h.db.UpdateScenarioStatus(ctx, heartbeat.ScenarioID, models.StatusInactive); err != nil {
 					log.Printf("Failed to update scenario status in DB: %v", err)
 					continue

@@ -68,8 +68,9 @@ func (h *Handlers) CreateScenarioHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	ctx := context.Background()
 	// Сохраняем в S3
-	err = h.saveFrames(id, frames)
+	err = h.saveFrames(ctx, id, frames)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to save frames: %v", err), http.StatusInternalServerError)
 		return
@@ -86,7 +87,7 @@ func (h *Handlers) CreateScenarioHandler(w http.ResponseWriter, r *http.Request)
 		UpdatedAt:   now,
 	}
 
-	if err := h.db.InTx(context.Background(), func(ctx context.Context) error {
+	if err := h.db.InTx(ctx, func(ctx context.Context) error {
 		if err := h.db.CreateScenario(ctx, &scenario); err != nil {
 			return fmt.Errorf("failed to insert scenario: %w", err)
 		}
@@ -116,14 +117,9 @@ func extractFrames(framesPath, videoPath string) ([]string, error) {
 	// Извлекаем кадры с помощью ffmpeg
 	framePattern := filepath.Join(framesPath, "frame_%04d.jpg")
 	cmd := exec.Command("ffmpeg",
-		"-hwaccel", "auto",
 		"-i", videoPath,
-		"-vf", "fps=0.1,scale=320:-1", // 1 кадр в 10 секунд + очень низкое разрешение
-		"-q:v", "10", // Минимальное качество
-		"-threads", "0",
-		"-preset", "ultrafast",
-		"-y", // Автоподтверждение перезаписи
-		"-loglevel", "error",
+		"-vf", "fps=3",
+		"-q:v", "2", // Качество JPEG
 		framePattern,
 	)
 
@@ -143,7 +139,7 @@ func extractFrames(framesPath, videoPath string) ([]string, error) {
 	return files, nil
 }
 
-func (h *Handlers) saveFrames(scenarioID string, files []string) error {
+func (h *Handlers) saveFrames(ctx context.Context, scenarioID string, files []string) error {
 	frameCount := len(files)
 	if frameCount == 0 {
 		return fmt.Errorf("no frames extracted from video")
@@ -166,7 +162,7 @@ func (h *Handlers) saveFrames(scenarioID string, files []string) error {
 		fileName := filepath.Base(framePath)
 		objectName := fmt.Sprintf("%s/%s", scenarioID, fileName)
 
-		_, err = h.s3.UploadFileStream("frames", objectName, frameFile, frameInfo.Size())
+		_, err = h.s3.UploadFileStream(ctx, "frames", objectName, frameFile, frameInfo.Size())
 		frameFile.Close()
 
 		if err != nil {

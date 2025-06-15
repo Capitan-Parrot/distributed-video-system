@@ -12,8 +12,15 @@ import (
 type Consumer struct {
 	group    sarama.ConsumerGroup
 	topic    string
-	messages chan []byte
+	messages chan consumerMessage
 	closed   chan struct{}
+}
+
+// consumerMessage содержит сообщение и сессию для подтверждения
+type consumerMessage struct {
+	Value   []byte
+	Session sarama.ConsumerGroupSession
+	Message *sarama.ConsumerMessage
 }
 
 // NewConsumer создаёт и возвращает новый Consumer
@@ -30,7 +37,7 @@ func NewConsumer(brokers []string, groupID, topic string) (*Consumer, error) {
 	return &Consumer{
 		group:    group,
 		topic:    topic,
-		messages: make(chan []byte),
+		messages: make(chan consumerMessage),
 		closed:   make(chan struct{}),
 	}, nil
 }
@@ -79,13 +86,13 @@ func (c *Consumer) Close() error {
 }
 
 // Messages возвращает канал для чтения сообщений
-func (c *Consumer) Messages() <-chan []byte {
+func (c *Consumer) Messages() <-chan consumerMessage {
 	return c.messages
 }
 
 // consumerGroupHandler реализует интерфейс sarama.ConsumerGroupHandler
 type consumerGroupHandler struct {
-	messages chan<- []byte
+	messages chan<- consumerMessage
 	closed   <-chan struct{}
 }
 
@@ -105,8 +112,12 @@ func (h *consumerGroupHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, cl
 				return nil
 			}
 			select {
-			case h.messages <- msg.Value:
-				sess.MarkMessage(msg, "")
+			case h.messages <- consumerMessage{
+				Value:   msg.Value,
+				Session: sess,
+				Message: msg,
+			}:
+				// Сообщение отправлено в канал, подтверждение будет после обработки
 			case <-sess.Context().Done():
 				return nil
 			case <-h.closed:

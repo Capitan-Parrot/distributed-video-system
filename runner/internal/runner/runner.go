@@ -16,6 +16,7 @@ import (
 )
 
 const (
+	//maxScenarios            = 1
 	retries                 = 5
 	heartbeatInterval       = 5 * time.Second
 	checkStopEventsInterval = 10 * time.Second
@@ -52,38 +53,47 @@ func (r *Runner) ListenAndRun(ctx context.Context) {
 			return
 		case msg := <-r.consumer.Messages():
 			var cmd models.ScenarioCommand
-			if err := json.Unmarshal(msg, &cmd); err != nil {
+			if err := json.Unmarshal(msg.Value, &cmd); err != nil {
 				log.Printf("Invalid message format: %v", err)
+				// Не подтверждаем сообщение при ошибке парсинга
 				continue
 			}
 			log.Printf("Runner: received scenario command %v", cmd)
+
+			var processErr error
 			switch cmd.Action {
 			case models.CommandStart:
-				r.Start(ctx, cmd)
+				processErr = r.Start(ctx, cmd)
 			case models.CommandStop:
-				r.RegisterStopEvent(cmd.ScenarioID)
+				processErr = r.RegisterStopEvent(cmd.ScenarioID)
 			default:
 				log.Printf("Unknown command: %s", cmd.Action)
 			}
+
+			if processErr != nil {
+				log.Printf("Error processing command: %v", processErr)
+				// Не подтверждаем сообщение при ошибке обработки
+				continue
+			}
+
+			// Подтверждаем сообщение только после успешной обработки
+			msg.Session.MarkMessage(msg.Message, "")
 		}
 	}
 }
 
-func (r *Runner) Start(ctx context.Context, cmd models.ScenarioCommand) {
-	existScenario, err := r.db.GetActiveScenario(cmd.ScenarioID, heartbeatInterval*3)
+func (r *Runner) Start(ctx context.Context, cmd models.ScenarioCommand) error {
+	existScenario, err := r.db.GetScenario(cmd.ScenarioID)
 	if err != nil {
 		log.Printf("Database error: %v", err)
-		return
+		return err
 	}
 	if existScenario != nil {
-		log.Printf("Runner for %s already running", cmd.ScenarioID)
-		return
+		if existScenario.Action == models.CommandStart && time.Now().Sub(existScenario.UpdatedAt) < heartbeatInterval*3 {
+			log.Printf("Runner for %s already running", cmd.ScenarioID)
+			return err
+		}
 	}
-
-	r.mu.Lock()
-	childCtx, cancel := context.WithCancel(ctx)
-	r.activeRunners[cmd.ScenarioID] = cancel
-	r.mu.Unlock()
 
 	if err := r.db.CreateScenario(&models.Scenario{
 		ID:          cmd.ScenarioID,
@@ -93,13 +103,39 @@ func (r *Runner) Start(ctx context.Context, cmd models.ScenarioCommand) {
 		UpdatedAt:   time.Now(),
 	}); err != nil {
 		log.Printf("Database error: %v", err)
+		return err
 	}
+	log.Printf("Runner for %s created", cmd.ScenarioID)
+
+	if err := r.producer.SendHeartbeat(models.Heartbeat{
+		ScenarioID: cmd.ScenarioID,
+		Action:     models.CommandStart,
+		TimeStamp:  time.Now().UTC(),
+	}); err != nil {
+		log.Printf("Runner %s error sending live heartbeat: %v", cmd.ScenarioID, err)
+		return err
+	}
+
+	r.mu.Lock()
+	childCtx, cancel := context.WithCancel(ctx)
+	r.activeRunners[cmd.ScenarioID] = cancel
+	r.mu.Unlock()
+
+	//if len(r.activeRunners) >= maxScenarios {
+	//	log.Printf("Runner for %s max scenarios reached", cmd.ScenarioID)
+	//	r.consumer.Close()
+	//}
 
 	go func() {
 		defer func() {
+			//if len(r.activeRunners) == maxScenarios {
+			//	go r.consumer.StartListening(ctx)
+			//}
+
 			r.mu.Lock()
 			delete(r.activeRunners, cmd.ScenarioID)
 			r.mu.Unlock()
+
 			log.Printf("Runner %s finished", cmd.ScenarioID)
 		}()
 
@@ -107,29 +143,34 @@ func (r *Runner) Start(ctx context.Context, cmd models.ScenarioCommand) {
 			log.Printf("Runner %s error: %v", cmd.ScenarioID, err)
 		}
 	}()
+
+	return nil
 }
 
 // processScenario скачивает кадры, отправляет их на детекцию и сохраняет в s3
 func (r *Runner) processScenario(ctx context.Context, cmd models.ScenarioCommand) error {
 	log.Printf("Runner %s: downloading frames from %s", cmd.ScenarioID, cmd.VideoSource)
 
-	frames, err := r.s3Client.DownloadFilesFromURL(cmd.VideoSource)
+	frames, err := r.s3Client.DownloadFilesFromURL(ctx, cmd.VideoSource)
 	if err != nil {
 		return err
 	}
 
-	processedFramesCount, err := r.s3Client.CountFilesInFolder(cmd.ScenarioID)
+	processedFramesCount, err := r.s3Client.CountFilesInFolder(ctx, cmd.ScenarioID)
 	if err != nil {
 		return err
 	}
 
 	timer := time.NewTicker(heartbeatInterval)
+	log.Printf("Runner %s: started processing from %d frame", cmd.ScenarioID, processedFramesCount)
 	for idx := processedFramesCount; idx < len(frames); idx++ {
 		if err := r.processFrameWithRetries(ctx, cmd, frames[idx], idx); err != nil {
 			return err
 		}
 
 		select {
+		case <-ctx.Done():
+			return nil
 		case <-timer.C:
 			if err := r.db.UpdateScenarioTimestamp(cmd.ScenarioID); err != nil {
 				log.Printf("Runner %s error updating scenario timestamp: %v", cmd.ScenarioID, err)
@@ -147,6 +188,14 @@ func (r *Runner) processScenario(ctx context.Context, cmd models.ScenarioCommand
 		}
 	}
 
+	if err := r.producer.SendHeartbeat(models.Heartbeat{
+		ScenarioID: cmd.ScenarioID,
+		Action:     models.CommandStop,
+		Frame:      int64(len(frames)),
+		TimeStamp:  time.Now().UTC(),
+	}); err != nil {
+		log.Printf("Runner %s error sending live heartbeat: %v", cmd.ScenarioID, err)
+	}
 	log.Printf("Runner %s: finished sending %d frames", cmd.ScenarioID, len(frames))
 	return nil
 }
@@ -155,6 +204,10 @@ func (r *Runner) processFrameWithRetries(ctx context.Context, cmd models.Scenari
 	success := false
 
 	for attempt := 0; !success && attempt < retries; attempt++ {
+		if success {
+			break
+		}
+
 		select {
 		case <-ctx.Done():
 			log.Printf("Runner %s: received stop", cmd.ScenarioID)
@@ -166,7 +219,7 @@ func (r *Runner) processFrameWithRetries(ctx context.Context, cmd models.Scenari
 				continue
 			}
 
-			if err := r.s3Client.SaveDetectionResults(cmd.ScenarioID, idx, detections); err != nil {
+			if err := r.s3Client.SaveDetectionResults(ctx, cmd.ScenarioID, idx, detections); err != nil {
 				log.Printf("Runner %s: save detection error: %v", cmd.ScenarioID, err)
 				continue
 			}
@@ -182,10 +235,13 @@ func (r *Runner) processFrameWithRetries(ctx context.Context, cmd models.Scenari
 	return nil
 }
 
-func (r *Runner) RegisterStopEvent(scenarioID string) {
+func (r *Runner) RegisterStopEvent(scenarioID string) error {
 	if err := r.db.ChangeScenarioAction(scenarioID, models.CommandStop); err != nil {
 		log.Printf("Runner %s error stopping scenario: %v", scenarioID, err)
+		return err
 	}
+
+	return nil
 }
 
 func (r *Runner) ProcessStopEvent(ctx context.Context) {
@@ -203,7 +259,7 @@ func (r *Runner) ProcessStopEvent(ctx context.Context) {
 			})
 
 			for _, scenarioID := range scenarioIDs {
-				if r.Stop(scenarioID) {
+				if r.Stop(ctx, scenarioID) {
 					if err := r.producer.SendHeartbeat(models.Heartbeat{
 						ScenarioID: scenarioID,
 						Action:     models.CommandStop,
@@ -219,7 +275,11 @@ func (r *Runner) ProcessStopEvent(ctx context.Context) {
 	}
 }
 
-func (r *Runner) Stop(scenarioID string) bool {
+func (r *Runner) Stop(ctx context.Context, scenarioID string) bool {
+	//if len(r.activeRunners) == maxScenarios {
+	//	go r.consumer.StartListening(ctx)
+	//}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 

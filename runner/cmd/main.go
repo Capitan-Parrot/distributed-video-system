@@ -49,7 +49,7 @@ func main() {
 		log.Fatalf("Failed to create Kafka consumer: %v", err)
 	}
 	defer consumer.Close()
-	go consumer.StartListening(ctx)
+	consumer.StartListening(ctx)
 
 	// Start Kafka producer for heartbeats
 	producer, err := kafka.NewProducer(cfg.Kafka.Brokers, cfg.Kafka.HeartbeatTopic)

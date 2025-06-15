@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 
@@ -39,7 +40,7 @@ func (h *Handlers) UpdateScenarioStatusHandler(w http.ResponseWriter, r *http.Re
 	if action == models.CommandStart {
 		switch currentStatus {
 		case models.StatusInitStartup, models.StatusInStartupProcessing, models.StatusActive:
-			http.Error(w, "Invalid transaction", http.StatusBadRequest)
+			http.Error(w, fmt.Sprintf("Invalid transaction from status %s", currentStatus), http.StatusBadRequest)
 			return
 		case models.StatusInitShutdown:
 			if err := h.db.InTx(ctx, func(ctx context.Context) error {
@@ -84,7 +85,7 @@ func (h *Handlers) UpdateScenarioStatusHandler(w http.ResponseWriter, r *http.Re
 	} else if action == models.CommandStop {
 		switch currentStatus {
 		case models.StatusInitShutdown, models.StatusInShutdownProcessing, models.StatusInactive:
-			http.Error(w, "Invalid transaction", http.StatusBadRequest)
+			http.Error(w, fmt.Sprintf("Invalid transaction from status %s", currentStatus), http.StatusBadRequest)
 			return
 		case models.StatusInitStartup:
 			if err := h.db.InTx(ctx, func(ctx context.Context) error {

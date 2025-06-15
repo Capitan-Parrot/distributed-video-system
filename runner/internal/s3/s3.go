@@ -30,7 +30,7 @@ func NewMinioClient(endpoint, accessKey, secretKey string) (*Client, error) {
 	return &Client{client: client}, nil
 }
 
-func (c *Client) DownloadFilesFromURL(fileURL string) ([][]byte, error) {
+func (c *Client) DownloadFilesFromURL(ctx context.Context, fileURL string) ([][]byte, error) {
 	u, err := url.Parse(fileURL)
 	if err != nil {
 		return nil, err
@@ -42,7 +42,7 @@ func (c *Client) DownloadFilesFromURL(fileURL string) ([][]byte, error) {
 	}
 	bucket, folder := parts[0], parts[1]
 
-	objectCh := c.client.ListObjects(context.Background(), bucket, minio.ListObjectsOptions{
+	objectCh := c.client.ListObjects(ctx, bucket, minio.ListObjectsOptions{
 		Prefix:    folder,
 		Recursive: true,
 	})
@@ -61,7 +61,7 @@ func (c *Client) DownloadFilesFromURL(fileURL string) ([][]byte, error) {
 		}
 
 		// Получаем объект
-		obj, err := c.client.GetObject(context.Background(), bucket, object.Key, minio.GetObjectOptions{})
+		obj, err := c.client.GetObject(ctx, bucket, object.Key, minio.GetObjectOptions{})
 		if err != nil {
 			return nil, err
 		}
@@ -82,7 +82,7 @@ func (c *Client) DownloadFilesFromURL(fileURL string) ([][]byte, error) {
 
 // SaveDetectionResults сохраняет результаты детекции в бакет predictions
 // в папку с именем сценария под именем файла - индексом файла
-func (c *Client) SaveDetectionResults(scenarioID string, fileIndex int, detections []models.Detection) error {
+func (c *Client) SaveDetectionResults(ctx context.Context, scenarioID string, fileIndex int, detections []models.Detection) error {
 	// Конвертируем детекции в JSON
 	jsonData, err := json.Marshal(detections)
 	if err != nil {
@@ -94,7 +94,7 @@ func (c *Client) SaveDetectionResults(scenarioID string, fileIndex int, detectio
 
 	// Загружаем данные в MinIO
 	_, err = c.client.PutObject(
-		context.Background(),
+		ctx,
 		"predictions",             // бакет
 		objectPath,                // путь к файлу
 		bytes.NewReader(jsonData), // данные
@@ -111,10 +111,11 @@ func (c *Client) SaveDetectionResults(scenarioID string, fileIndex int, detectio
 }
 
 // CountFilesInFolder возвращает количество файлов в указанной папке бакета predictions
-func (c *Client) CountFilesInFolder(folderPath string) (int, error) {
+func (c *Client) CountFilesInFolder(ctx context.Context, folderPath string) (int, error) {
 	count := 0
-	objectCh := c.client.ListObjects(context.Background(), "predictions", minio.ListObjectsOptions{
-		Prefix: folderPath,
+	objectCh := c.client.ListObjects(ctx, "predictions", minio.ListObjectsOptions{
+		Prefix:    folderPath,
+		Recursive: true,
 	})
 
 	for object := range objectCh {

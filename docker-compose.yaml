@@ -39,14 +39,11 @@ services:
     build:
       context: ./runner
       dockerfile: Dockerfile
-    container_name: video-analytics-runner
     environment:
       CONFIG_PATH: docker.yaml
       HEARTBEAT_INTERVAL: 10
     volumes:
       - video_data:/app/videos
-    ports:
-      - "8003:8003"
     depends_on:
       postgres:
         condition: service_healthy
@@ -77,10 +74,11 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+      start_period: 10s
 
   postgres:
     image: postgres:15-alpine
-    container_name: video-analytics-postgres-orchestrator
+    container_name: video-analytics-postgres
     environment:
       POSTGRES_USER: vidanalytics
       POSTGRES_PASSWORD: secret

@@ -16,25 +16,25 @@ func (d *Database) CreateScenario(scenario *models.Scenario) error {
 	scenario.UpdatedAt = now
 
 	_, err := d.DB.Exec(
-		"INSERT INTO scenarios (id, action, video_source, created_at, updated_at) VALUES ($1, $2, $3, $4, $5)",
+		`INSERT INTO scenarios (id, action, video_source, created_at, updated_at) VALUES ($1, $2, $3, $4, $5) 
+			 	ON CONFLICT (id) DO UPDATE SET action = $6, updated_at = NOW()`,
 		scenario.ID,
 		scenario.Action,
 		scenario.VideoSource,
 		scenario.CreatedAt,
 		scenario.UpdatedAt,
+		models.CommandStart,
 	)
 
 	return err
 }
 
-func (d *Database) GetActiveScenario(scenarioID string, deadline time.Duration) (*models.Scenario, error) {
+func (d *Database) GetScenario(scenarioID string) (*models.Scenario, error) {
 	row := d.DB.QueryRow(`
 		SELECT id, action, video_source, created_at, updated_at
 		FROM scenarios
-		WHERE id = $1 
-		AND action = $2
-		AND updated_at > $3
-	`, models.CommandStart, scenarioID, time.Now().Add(-deadline))
+		WHERE id = $1
+	`, scenarioID)
 
 	var scenario models.Scenario
 	err := row.Scan(

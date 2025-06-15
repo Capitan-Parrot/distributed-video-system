@@ -7,17 +7,6 @@ import (
 	"github.com/Capitan-Parrot/distributed-video-system/orhestrator/internal/models"
 )
 
-//// GetScenarioStatus retrieves only the status of a scenario by its ID
-//func (d *Database) GetScenarioStatus(scenarioID string) (string, error) {
-//	var status string
-//	err := d.DB.QueryRow(
-//		"SELECT status FROM scenarios WHERE id = $1",
-//		scenarioID,
-//	).Scan(&status)
-//
-//	return status, err
-//}
-
 // WriteHeartbeat record a heartbeat
 func (d *Database) WriteHeartbeat(heartbeat models.Heartbeat) error {
 	_, err := d.DB.Exec(
@@ -40,8 +29,7 @@ func (d *Database) FindStuckScenarios(ctx context.Context, interval time.Duratio
 			FROM heartbeats
 			GROUP BY scenario_id
 		) h ON s.id = h.scenario_id
-		WHERE s.status = $1 
-		AND (h.last_heartbeat IS NULL OR h.last_heartbeat < $2)
+		WHERE s.status = $1 AND (h.last_heartbeat IS NULL OR h.last_heartbeat < $2)
 	`, models.StatusActive, time.Now().Add(-interval))
 
 	if err != nil {

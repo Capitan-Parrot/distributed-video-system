@@ -7,12 +7,12 @@ import (
 	"os"
 	"time"
 
-	watchdog "github.com/Capitan-Parrot/distributed-video-system/orhestrator/internal"
 	"github.com/Capitan-Parrot/distributed-video-system/orhestrator/internal/api"
 	"github.com/Capitan-Parrot/distributed-video-system/orhestrator/internal/config"
 	"github.com/Capitan-Parrot/distributed-video-system/orhestrator/internal/kafka"
 	"github.com/Capitan-Parrot/distributed-video-system/orhestrator/internal/outbox"
 	"github.com/Capitan-Parrot/distributed-video-system/orhestrator/internal/s3"
+	"github.com/Capitan-Parrot/distributed-video-system/orhestrator/internal/watchdog"
 	"github.com/gorilla/mux"
 
 	"github.com/Capitan-Parrot/distributed-video-system/orhestrator/internal/database"
