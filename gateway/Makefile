@@ -14,11 +14,11 @@ dev:
 
 # Проверка кода
 lint:
-	poetry run flake8 app
+	poetry run flake8 gateway
 
 # Форматирование кода
 format:
-	poetry run black app
+	poetry run black gateway
 
 # Сборка Docker-образа
 docker-build:

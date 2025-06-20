@@ -3,6 +3,7 @@ package kafka
 import (
 	"context"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/IBM/sarama"
@@ -10,10 +11,13 @@ import (
 
 // Consumer оборачивает Sarama ConsumerGroup
 type Consumer struct {
-	group    sarama.ConsumerGroup
-	topic    string
-	messages chan consumerMessage
-	closed   chan struct{}
+	group         sarama.ConsumerGroup
+	topic         string
+	messages      chan consumerMessage
+	closed        chan struct{}
+	cancelConsume context.CancelFunc // для остановки потребления
+	consumeMutex  sync.Mutex         // для безопасного управления потреблением
+	running       bool               // флаг, указывающий, работает ли консьюмер
 }
 
 // consumerMessage содержит сообщение и сессию для подтверждения
@@ -42,45 +46,88 @@ func NewConsumer(brokers []string, groupID, topic string) (*Consumer, error) {
 	}, nil
 }
 
-// StartListening запускает асинхронное потребление сообщений
-func (c *Consumer) StartListening(ctx context.Context) {
+// Pause временно отключает консьюмер от группы
+func (c *Consumer) Pause() {
+	c.consumeMutex.Lock()
+	defer c.consumeMutex.Unlock()
+
+	if c.running && c.cancelConsume != nil {
+		log.Println("Consumer: pausing consumption")
+		c.cancelConsume()
+		c.running = false
+	}
+}
+
+// Resume снова подключает консьюмер к группе
+func (c *Consumer) Resume(ctx context.Context) {
+	c.consumeMutex.Lock()
+	defer c.consumeMutex.Unlock()
+
+	if !c.running {
+		log.Println("Consumer: resuming consumption")
+		consumeCtx, cancel := context.WithCancel(ctx)
+		c.cancelConsume = cancel
+		c.running = true
+
+		go c.startConsumption(consumeCtx)
+	}
+}
+
+func (c *Consumer) startConsumption(ctx context.Context) {
 	handler := &consumerGroupHandler{
 		messages: c.messages,
 		closed:   c.closed,
 	}
 
-	go func() {
-		defer close(c.messages)
-
-		retryDelay := time.Second * 5
-		for {
-			select {
-			case <-ctx.Done():
-				log.Println("Consumer: context cancelled, stopping")
-				return
-			default:
-				log.Println("Consumer: starting consumption cycle")
-				err := c.group.Consume(ctx, []string{c.topic}, handler)
-				if err != nil {
-					log.Printf("Consume error: %v, retrying in %v", err, retryDelay)
-					select {
-					case <-ctx.Done():
-						return
-					case <-time.After(retryDelay):
-					}
-					continue
-				}
-
-				if ctx.Err() != nil {
+	retryDelay := time.Second * 5
+	for {
+		select {
+		case <-ctx.Done():
+			log.Println("Consumer: context cancelled, stopping")
+			return
+		default:
+			log.Println("Consumer: starting consumption cycle")
+			err := c.group.Consume(ctx, []string{c.topic}, handler)
+			if err != nil {
+				log.Printf("Consume error: %v, retrying in %v", err, retryDelay)
+				select {
+				case <-ctx.Done():
 					return
+				case <-time.After(retryDelay):
 				}
+				continue
+			}
+
+			if ctx.Err() != nil {
+				return
 			}
 		}
-	}()
+	}
+}
+
+// StartListening запускает асинхронное потребление сообщений
+func (c *Consumer) StartListening(ctx context.Context) {
+	c.consumeMutex.Lock()
+	defer c.consumeMutex.Unlock()
+
+	if !c.running {
+		consumeCtx, cancel := context.WithCancel(ctx)
+		c.cancelConsume = cancel
+		c.running = true
+
+		go c.startConsumption(consumeCtx)
+	}
 }
 
 // Close останавливает потребитель и освобождает ресурсы
 func (c *Consumer) Close() error {
+	c.consumeMutex.Lock()
+	defer c.consumeMutex.Unlock()
+
+	if c.running && c.cancelConsume != nil {
+		c.cancelConsume()
+		c.running = false
+	}
 	close(c.closed)
 	return c.group.Close()
 }

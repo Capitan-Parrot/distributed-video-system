@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	//maxScenarios            = 1
+	maxScenarios            = 10
 	retries                 = 5
 	heartbeatInterval       = 5 * time.Second
 	checkStopEventsInterval = 10 * time.Second
@@ -121,16 +121,16 @@ func (r *Runner) Start(ctx context.Context, cmd models.ScenarioCommand) error {
 	r.activeRunners[cmd.ScenarioID] = cancel
 	r.mu.Unlock()
 
-	//if len(r.activeRunners) >= maxScenarios {
-	//	log.Printf("Runner for %s max scenarios reached", cmd.ScenarioID)
-	//	r.consumer.Close()
-	//}
+	if len(r.activeRunners) >= maxScenarios {
+		log.Printf("Runner for %s max scenarios reached", cmd.ScenarioID)
+		r.consumer.Pause()
+	}
 
 	go func() {
 		defer func() {
-			//if len(r.activeRunners) == maxScenarios {
-			//	go r.consumer.StartListening(ctx)
-			//}
+			if len(r.activeRunners) == maxScenarios {
+				r.consumer.Resume(ctx)
+			}
 
 			r.mu.Lock()
 			delete(r.activeRunners, cmd.ScenarioID)
@@ -276,16 +276,16 @@ func (r *Runner) ProcessStopEvent(ctx context.Context) {
 }
 
 func (r *Runner) Stop(ctx context.Context, scenarioID string) bool {
-	//if len(r.activeRunners) == maxScenarios {
-	//	go r.consumer.StartListening(ctx)
-	//}
-
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	if cancel, ok := r.activeRunners[scenarioID]; ok {
 		cancel()
+		if len(r.activeRunners) == maxScenarios {
+			r.consumer.Resume(ctx)
+		}
 		log.Printf("Runner %s stopped", scenarioID)
+		delete(r.activeRunners, scenarioID)
 		return true
 	}
 
