@@ -1,5 +1,8 @@
 ## Распределенная система видео аналитики
 
+[Схема архитектуры](https://miro.com/app/board/uXjVNdG7rnA=/) 
+![img.png](img.png)
+
 ## api
 - **POST /scenario/** - инициализация стейт-машины
 - **POST /scenario/<scenario_id>/** - изменение статуса стейт-машины

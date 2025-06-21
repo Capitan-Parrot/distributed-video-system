@@ -30,14 +30,12 @@ func (h *Handlers) CreateScenarioHandler(w http.ResponseWriter, r *http.Request)
 	}
 	defer file.Close()
 
-	// Получаем размер файла
 	size := header.Size
 	if size == 0 {
 		http.Error(w, "Video file is empty", http.StatusBadRequest)
 		return
 	}
 
-	// Генерация ID и имени объекта
 	id := uuid.New().String()
 	tempDir := os.TempDir()
 
@@ -130,7 +128,7 @@ func extractFrames(framesPath, videoPath string) ([]string, error) {
 		return nil, fmt.Errorf("ffmpeg failed: %w, stderr: %s", err, stderr.String())
 	}
 	log.Println(time.Now().Sub(t))
-	// Получаем список сгенерированных файлов
+
 	files, err := filepath.Glob(filepath.Join(framesPath, "frame_*.jpg"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to list frame files: %w", err)
